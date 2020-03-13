@@ -211,7 +211,7 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
                           u"================================= SHUFFLE EXAMPLE {} ================================".format(FLAGS.word_order_shuffle_probability),
                           line,
                           shuffled_line,
-                          u"====================================================================================")
+                          u"=======================================================================================")
         tokens = tokenizer.tokenize(shuffled_line)
         if tokens:
           all_documents[-1].append(tokens)
