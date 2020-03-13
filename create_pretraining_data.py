@@ -64,6 +64,12 @@ flags.DEFINE_float(
     "Probability of creating sequences which are shorter than the "
     "maximum length.")
 
+flags.DEFINE_float('sentence_shuffle_probability', 0.0, 'The probability of shuffling of the input sentence.')
+flags.DEFINE_float('word_order_shuffle_probability', 0.0, 'The probability of shuffling of the word order in an input sentence that was selected to be shuffled.')
+flags.DEFINE_float('shuffle_seed', 1453, 'The seed value for shuffling.')
+
+shuffle_random_generator = random.Random()
+shuffle_random_generator.seed(FLAGS.shuffle_seed)
 
 class TrainingInstance(object):
   """A single training instance (sentence pair)."""
@@ -199,7 +205,12 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
         # Empty lines are used as document delimiters
         if not line:
           all_documents.append([])
-        tokens = tokenizer.tokenize(line)
+        shuffled_line = shuffle_sentence(line)
+        if line != shuffled_line and random.random() < 0.01: # print some examples of shuffles sentences
+          print(u'Original line:{}'.format(line))
+          print(u'Shuffled line:{}'.format(shuffled_line))
+          print('=========================================================')
+        tokens = tokenizer.tokenize(shuffled_line)
         if tokens:
           all_documents[-1].append(tokens)
 
@@ -461,6 +472,32 @@ def main(_):
   write_instance_to_example_files(instances, tokenizer, FLAGS.max_seq_length,
                                   FLAGS.max_predictions_per_seq, output_files)
 
+
+def shuffle_sentence(line):
+  if should_shuffle_sentence():
+    tokens = line.split(' ')
+    shuffle_word_order(tokens)
+    line = ' '.join(tokens)
+  return line
+
+def should_shuffle_sentence():
+  random_prob = shuffle_random_generator.uniform(0, 1)
+  should_shuffle = random_prob < FLAGS.sentence_shuffle_probability
+  return should_shuffle
+
+def should_shuffle_word_order():
+  random_prob = shuffle_random_generator.uniform(0, 1)
+  should_shuffle = random_prob < FLAGS.word_order_shuffle_probability
+  return should_shuffle
+
+def shuffle_word_order(tokens):
+  for i in range(len(tokens)):
+    should_swap_flag = should_shuffle_word_order()
+    if should_swap_flag:
+      j = int(random.uniform(0, len(tokens)))  # choose a random token to swap
+      tmp_token = tokens[i]
+      tokens[i] = tokens[j]
+      tokens[j] = tmp_token
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("input_file")
