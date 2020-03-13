@@ -208,10 +208,10 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
         shuffled_line = shuffle_sentence(line)
         if line != shuffled_line and random.random() < 0.01: # print some examples of shuffles sentences
           tf.logging.info(u"\n%s\nOriginal line: %s\nShuffled line: %s\n%s\n ",
-                          u"================================ SHUFFLE EXAMPLE {} ================================".format(FLAGS.word_order_shuffle_probability),
+                          u"================================= SHUFFLE EXAMPLE {} ================================".format(FLAGS.word_order_shuffle_probability),
                           line,
                           shuffled_line,
-                          u"=================================================================================")
+                          u"====================================================================================")
         tokens = tokenizer.tokenize(shuffled_line)
         if tokens:
           all_documents[-1].append(tokens)
