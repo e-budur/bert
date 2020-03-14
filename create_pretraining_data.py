@@ -473,8 +473,12 @@ def main(_):
 
   write_instance_to_example_files(instances, tokenizer, FLAGS.max_seq_length,
                                   FLAGS.max_predictions_per_seq, output_files)
+  tf.logging.info("*** Process completed  ***")
+  tf.logging.info("*** input files ***")
+  for input_file in input_files:
+    tf.logging.info("  %s", input_file)
 
-  tf.logging.info("*** Writing to output files has been completed ***")
+  tf.logging.info("*** output files ***")
   for output_file in output_files:
     tf.logging.info("  %s", output_file)
 
