@@ -238,7 +238,14 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
                           u"=======================================================================================")
         line = shuffled_line
         if FLAGS.do_morphological_parsing:
-            line = parse_sentence(AnalysisFormatters, morphology, line)
+            morphed_line = parse_sentence(AnalysisFormatters, morphology, line)
+            if random.random() < 0.01:  # print some examples of shuffles sentences
+              tf.logging.info(u"\n%s\nOriginal line: %s\nMorphed line: %s\n%s\n ",
+                              u"================================= MORPHED EXAMPLE {} ================================",
+                              line,
+                              morphed_line,
+                              u"=======================================================================================")
+              line = morphed_line
 
         tokens = tokenizer.tokenize(line)
         if tokens:
