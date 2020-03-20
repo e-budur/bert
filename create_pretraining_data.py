@@ -22,6 +22,9 @@ import collections
 import random
 import tokenization
 import tensorflow as tf
+import os
+import jpype
+from jpype import *
 
 flags = tf.flags
 
@@ -67,6 +70,13 @@ flags.DEFINE_float(
 flags.DEFINE_float('sentence_shuffle_probability', 0.0, 'The probability of shuffling of the input sentence.')
 flags.DEFINE_float('word_order_shuffle_probability', 0.0, 'The probability of shuffling of the word order in an input sentence that was selected to be shuffled.')
 flags.DEFINE_float('shuffle_seed', 1453, 'The seed value for shuffling.')
+
+flags.DEFINE_bool(
+    "do_morphological_parsing", False,
+    "Whether to parse the sentences morphologically")
+
+flags.DEFINE_string("zemberek_path", None,
+                    "The zemberek library path.")
 
 shuffle_random_generator = random.Random()
 shuffle_random_generator.seed(FLAGS.shuffle_seed)
@@ -194,6 +204,20 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
   # sentence boundaries for the "next sentence prediction" task).
   # (2) Blank lines between documents. Document boundaries are needed so
   # that the "next sentence prediction" task doesn't span between documents.
+
+  cpath = f"-Djava.class.path=%s" % (FLAGS.zemberek_path)
+
+  startJVM(
+    getDefaultJVMPath(),
+    '-ea',
+    cpath,
+    convertStrings=False
+  )
+  if FLAGS.do_morphological_parsing:
+    TurkishMorphology = JClass('zemberek.morphology.TurkishMorphology')
+    morphology = TurkishMorphology.createWithDefaults()
+    AnalysisFormatters = JClass('zemberek.morphology.analysis.AnalysisFormatters')
+
   for input_file in input_files:
     with tf.gfile.GFile(input_file, "r") as reader:
       while True:
@@ -212,7 +236,11 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
                           line,
                           shuffled_line,
                           u"=======================================================================================")
-        tokens = tokenizer.tokenize(shuffled_line)
+        line = shuffled_line
+        if FLAGS.do_morphological_parsing:
+            line = parse_sentence(AnalysisFormatters, morphology, line)
+
+        tokens = tokenizer.tokenize(line)
         if tokens:
           all_documents[-1].append(tokens)
 
@@ -508,6 +536,24 @@ def shuffle_word_order(tokens):
       tmp_token = tokens[i]
       tokens[i] = tokens[j]
       tokens[j] = tmp_token
+
+
+def parse_sentence(AnalysisFormatters, morphology, sentence):
+
+    sentence_analysis = morphology.analyzeAndDisambiguate(JString(sentence))
+    parsed_words = []
+    for sentence_word_analysis in sentence_analysis:
+      word_analysis = sentence_word_analysis.getWordAnalysis()
+      word_analysis_results = word_analysis.getAnalysisResults()
+      if len(word_analysis_results) > 0:
+        single_anaysis = word_analysis_results[0]
+        parsed_word = str(AnalysisFormatters.SURFACE_SEQUENCE.format(single_anaysis))
+        parsed_word = str(word_analysis.getInput())[0] + parsed_word[1:]
+      else:
+        parsed_word = str(word_analysis.getInput())
+      parsed_words.append(parsed_word)
+    parsed_sentence = '  '.join(parsed_words)
+    return parsed_sentence
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("input_file")
