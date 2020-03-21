@@ -78,6 +78,10 @@ flags.DEFINE_bool(
 flags.DEFINE_string("zemberek_path", None,
                     "The zemberek library path.")
 
+flags.DEFINE_integer(
+    "ngram_window_size", 0,
+    "The window size of ngram if the sentence is to be preprocessed by using ngram method.")
+
 shuffle_random_generator = random.Random()
 shuffle_random_generator.seed(FLAGS.shuffle_seed)
 
