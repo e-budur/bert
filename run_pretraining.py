@@ -146,6 +146,9 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
          bert_config, model.get_pooled_output(), next_sentence_labels)
 
     total_loss = masked_lm_loss + next_sentence_loss
+    tf.summary.scalar('total_loss', total_loss)
+    tf.summary.scalar('masked_lm_loss', masked_lm_loss)
+    tf.summary.scalar('next_sentence_loss', next_sentence_loss)
 
     tvars = tf.trainable_variables()
 
