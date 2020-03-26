@@ -23,8 +23,8 @@ import random
 import tokenization
 import tensorflow as tf
 import os
-import jpype
-from jpype import *
+#import jpype
+#from jpype import *
 
 flags = tf.flags
 
@@ -210,13 +210,14 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
   # that the "next sentence prediction" task doesn't span between documents.
 
   cpath = f"-Djava.class.path=%s" % (FLAGS.zemberek_path)
-
+  '''
   startJVM(
     getDefaultJVMPath(),
     '-ea',
     cpath,
     convertStrings=False
   )
+  '''
   if FLAGS.do_morphological_parsing:
     TurkishMorphology = JClass('zemberek.morphology.TurkishMorphology')
     morphology = TurkishMorphology.createWithDefaults()
