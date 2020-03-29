@@ -105,6 +105,9 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+flags.DEFINE_integer(
+    "num_accumulation_steps", 1,
+    "Used for accumulating the gradient for the given number of steps to avoid to stabilize the gradient behaviour.")
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
@@ -146,6 +149,9 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
          bert_config, model.get_pooled_output(), next_sentence_labels)
 
     total_loss = masked_lm_loss + next_sentence_loss
+    tf.summary.scalar('total_loss', total_loss)
+    tf.summary.scalar('masked_lm_loss', masked_lm_loss)
+    tf.summary.scalar('next_sentence_loss', next_sentence_loss)
 
     tvars = tf.trainable_variables()
 
@@ -174,8 +180,8 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
     output_spec = None
     if mode == tf.estimator.ModeKeys.TRAIN:
-      train_op = optimization.create_optimizer(
-          total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+      train_op = optimization.create_optimizer_of_nvidia(
+          total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, num_accumulation_steps=FLAGS.num_accumulation_steps)
 
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
@@ -325,7 +331,7 @@ def input_fn_builder(input_files,
                      max_seq_length,
                      max_predictions_per_seq,
                      is_training,
-                     num_cpu_threads=4):
+                     num_cpu_threads=30):
   """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
   def input_fn(params):
@@ -354,8 +360,8 @@ def input_fn_builder(input_files,
     if is_training:
       d = tf.data.Dataset.from_tensor_slices(tf.constant(input_files))
       d = d.repeat()
-      d = d.shuffle(buffer_size=len(input_files))
-
+      d = d.shuffle(buffer_size=30000000)
+      tf.logging.info("*** len(input_files): "+str(len(input_files)))
       # `cycle_length` is the number of parallel files that get read.
       cycle_length = min(num_cpu_threads, len(input_files))
 
@@ -366,7 +372,7 @@ def input_fn_builder(input_files,
               tf.data.TFRecordDataset,
               sloppy=is_training,
               cycle_length=cycle_length))
-      d = d.shuffle(buffer_size=100)
+      d = d.shuffle(buffer_size=30000000)
     else:
       d = tf.data.TFRecordDataset(input_files)
       # Since we evaluate for a fixed number of steps we don't want to encounter
@@ -382,7 +388,7 @@ def input_fn_builder(input_files,
             lambda record: _decode_record(record, name_to_features),
             batch_size=batch_size,
             num_parallel_batches=num_cpu_threads,
-            drop_remainder=True))
+            drop_remainder=False))
     return d
 
   return input_fn
