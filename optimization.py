@@ -85,6 +85,154 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu):
   return train_op
 
 
+def create_optimizer_of_nvidia(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu=False, manual_fp16=False, use_fp16=False,
+                     num_accumulation_steps=1,
+                     optimizer_type="adam", allreduce_post_accumulation=False):
+    """Creates an optimizer training op."""
+    global_step = tf.train.get_or_create_global_step()
+
+    # avoid step change in learning rate at end of warmup phase
+    if optimizer_type == "adam":
+        power = 1.0
+        decayed_learning_rate_at_crossover_point = init_lr * (
+                (1.0 - float(num_warmup_steps) / float(num_train_steps)) ** power)
+    else:
+        power = 0.5
+        decayed_learning_rate_at_crossover_point = init_lr
+
+    adjusted_init_lr = init_lr * (init_lr / decayed_learning_rate_at_crossover_point)
+    print('decayed_learning_rate_at_crossover_point = %e, adjusted_init_lr = %e' % (
+    decayed_learning_rate_at_crossover_point, adjusted_init_lr))
+
+    learning_rate = tf.constant(value=adjusted_init_lr, shape=[], dtype=tf.float32)
+
+    # Implements linear decay of the learning rate.
+    learning_rate = tf.train.polynomial_decay(
+        learning_rate,
+        global_step,
+        num_train_steps,
+        end_learning_rate=0.0,
+        power=power,
+        cycle=False)
+
+    # Implements linear warmup. I.e., if global_step < num_warmup_steps, the
+    # learning rate will be `global_step/num_warmup_steps * init_lr`.
+    if num_warmup_steps:
+        global_steps_int = tf.cast(global_step, tf.int32)
+        warmup_steps_int = tf.constant(num_warmup_steps, dtype=tf.int32)
+
+        global_steps_float = tf.cast(global_steps_int, tf.float32)
+        warmup_steps_float = tf.cast(warmup_steps_int, tf.float32)
+
+        warmup_percent_done = global_steps_float / warmup_steps_float
+        warmup_learning_rate = init_lr * warmup_percent_done
+
+        is_warmup = tf.cast(global_steps_int < warmup_steps_int, tf.float32)
+        learning_rate = (
+                (1.0 - is_warmup) * learning_rate + is_warmup * warmup_learning_rate)
+
+    print("Initializing ADAM Weight Decay Optimizer")
+    # It is recommended that you use this optimizer for fine tuning, since this
+    # is how the model was trained (note that the Adam m/v variables are NOT
+    # loaded from init_checkpoint.)
+    optimizer = AdamWeightDecayOptimizer(
+        learning_rate=learning_rate,
+        weight_decay_rate=0.01,
+        beta_1=0.9,
+        beta_2=0.999,
+        epsilon=1e-6,
+        exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"])
+
+    if manual_fp16 or use_fp16:
+        loss_scale_manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(init_loss_scale=2 ** 32,
+                                                                                          incr_every_n_steps=1000,
+                                                                                          decr_every_n_nan_or_inf=2,
+                                                                                          decr_ratio=0.5)
+        optimizer = tf.contrib.mixed_precision.LossScaleOptimizer(optimizer, loss_scale_manager)
+
+    tvars = tf.trainable_variables()
+    grads_and_vars = optimizer.compute_gradients(loss * 1.0 / num_accumulation_steps, tvars)
+
+    if num_accumulation_steps > 1:
+        local_step = tf.get_variable(name="local_step", shape=[], dtype=tf.int32, trainable=False,
+                                     initializer=tf.zeros_initializer)
+        batch_finite = tf.get_variable(name="batch_finite", shape=[], dtype=tf.bool, trainable=False,
+                                       initializer=tf.ones_initializer)
+        accum_vars = [tf.get_variable(
+            name=tvar.name.split(":")[0] + "/accum",
+            shape=tvar.shape.as_list(),
+            dtype=tf.float32,
+            trainable=False,
+            initializer=tf.zeros_initializer()) for tvar in tf.trainable_variables()]
+
+        reset_step = tf.cast(tf.math.equal(local_step % num_accumulation_steps, 0), dtype=tf.bool)
+        local_step = tf.cond(reset_step, lambda: local_step.assign(tf.ones_like(local_step)),
+                             lambda: local_step.assign_add(1))
+
+        grads_and_vars_and_accums = [(gv[0], gv[1], accum_vars[i]) for i, gv in enumerate(grads_and_vars) if
+                                     gv[0] is not None]
+        grads, tvars, accum_vars = list(zip(*grads_and_vars_and_accums))
+
+        all_are_finite = tf.reduce_all(
+            [tf.reduce_all(tf.is_finite(g)) for g in grads]) if manual_fp16 or use_fp16 else tf.constant(True,
+                                                                                                         dtype=tf.bool)
+        batch_finite = tf.cond(reset_step,
+                               lambda: batch_finite.assign(
+                                   tf.math.logical_and(tf.constant(True, dtype=tf.bool), all_are_finite)),
+                               lambda: batch_finite.assign(tf.math.logical_and(batch_finite, all_are_finite)))
+
+        # This is how the model was pre-trained.
+        # ensure global norm is a finite number
+        # to prevent clip_by_global_norm from having a hizzy fit.
+        (clipped_grads, _) = tf.clip_by_global_norm(
+            grads, clip_norm=1.0,
+            use_norm=tf.cond(
+                all_are_finite,
+                lambda: tf.global_norm(grads),
+                lambda: tf.constant(1.0)))
+
+        accum_vars = tf.cond(reset_step,
+                             lambda: [accum_vars[i].assign(grad) for i, grad in enumerate(clipped_grads)],
+                             lambda: [accum_vars[i].assign_add(grad) for i, grad in enumerate(clipped_grads)])
+
+        def update(accum_vars):
+            return optimizer.apply_gradients(list(zip(accum_vars, tvars)), global_step=global_step)
+
+        update_step = tf.identity(tf.cast(tf.math.equal(local_step % num_accumulation_steps, 0), dtype=tf.bool),
+                                  name="update_step")
+        update_op = tf.cond(update_step,
+                            lambda: update(accum_vars), lambda: tf.no_op())
+
+        new_global_step = tf.cond(update_step,
+            lambda: global_step + 1, lambda: global_step)
+
+        new_global_step = tf.identity(new_global_step, name='step_update')
+        train_op = tf.group(update_op, [global_step.assign(new_global_step)])
+    else:
+        grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
+        grads, tvars = list(zip(*grads_and_vars))
+        all_are_finite = tf.reduce_all(
+            [tf.reduce_all(tf.is_finite(g)) for g in grads]) if use_fp16 or manual_fp16 else tf.constant(True,
+                                                                                                         dtype=tf.bool)
+
+        # This is how the model was pre-trained.
+        # ensure global norm is a finite number
+        # to prevent clip_by_global_norm from having a hizzy fit.
+        (clipped_grads, _) = tf.clip_by_global_norm(
+            grads, clip_norm=1.0,
+            use_norm=tf.cond(
+                all_are_finite,
+                lambda: tf.global_norm(grads),
+                lambda: tf.constant(1.0)))
+
+        train_op = optimizer.apply_gradients(
+            list(zip(clipped_grads, tvars)), global_step=global_step)
+
+        new_global_step = tf.cond(all_are_finite, lambda: global_step + 1, lambda: global_step)
+        new_global_step = tf.identity(new_global_step, name='step_update')
+        train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+    return train_op
+
 class AdamWeightDecayOptimizer(tf.train.Optimizer):
   """A basic Adam optimizer that includes "correct" L2 weight decay."""
 
