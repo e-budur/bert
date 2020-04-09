@@ -491,7 +491,6 @@ def main(_):
   tf.logging.info("vocab_file:  %s", FLAGS.vocab_file)
   tf.logging.info("random_seed:  %s", str(FLAGS.random_seed))
 
-  print(FLAGS)
   tokenizer = tokenization.FullTokenizer(
       vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
