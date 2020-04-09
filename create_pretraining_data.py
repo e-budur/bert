@@ -40,8 +40,8 @@ flags.DEFINE_string(
 flags.DEFINE_string("vocab_file", None,
                     "The vocabulary file that the BERT model was trained on.")
 
-flags.DEFINE_bool(
-    "do_lower_case", None,
+flags.DEFINE_string(
+    "do_lower_case", "True",
     "Whether to lower case the input text. Should be True for uncased "
     "models and False for cased models.")
 
@@ -487,12 +487,12 @@ def truncate_seq_pair(tokens_a, tokens_b, max_num_tokens, rng):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  tf.logging.info("do_lower_case:  %s", str(FLAGS.do_lower_case))
+  tf.logging.info("do_lower_case:  %s", str(bool(FLAGS.do_lower_case)))
   tf.logging.info("vocab_file:  %s", FLAGS.vocab_file)
   tf.logging.info("random_seed:  %s", str(FLAGS.random_seed))
 
   tokenizer = tokenization.FullTokenizer(
-      vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+      vocab_file=FLAGS.vocab_file, do_lower_case=bool(FLAGS.do_lower_case))
 
   input_files = []
   for input_pattern in FLAGS.input_file.split(","):
