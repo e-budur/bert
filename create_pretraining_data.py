@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Create masked LM/next sentence masked_lm TF examples for BERT."""
+# integrated sentencepiece by adopting the code from https://github.com/raymondhs/bert-sentencepiece/
 
 from __future__ import absolute_import
 from __future__ import division
@@ -74,6 +75,14 @@ flags.DEFINE_float('shuffle_seed', 1453, 'The seed value for shuffling.')
 flags.DEFINE_bool(
     "do_morphological_parsing", False,
     "Whether to parse the sentences morphologically")
+
+flags.DEFINE_string(
+    "piece", "word",
+    "Whether to use WordPiece or SentencePiece tokenization.")
+
+flags.DEFINE_string(
+    "piece_model", None,
+    "Tokenization model file (only for SentencePiece).")
 
 flags.DEFINE_string("zemberek_path", None,
                     "The zemberek library path.")
@@ -489,10 +498,13 @@ def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   tf.logging.info("do_lower_case:  %s", str(FLAGS.do_lower_case))
   tf.logging.info("vocab_file:  %s", FLAGS.vocab_file)
+  tf.logging.info("piece:  %s", FLAGS.piece)
+  tf.logging.info("piece_model:  %s", FLAGS.piece_model)
   tf.logging.info("random_seed:  %s", str(FLAGS.random_seed))
 
   tokenizer = tokenization.FullTokenizer(
-      vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case,
+    piece=FLAGS.piece, piece_model=FLAGS.piece_model)
 
   input_files = []
   for input_pattern in FLAGS.input_file.split(","):
@@ -573,4 +585,5 @@ if __name__ == "__main__":
   flags.mark_flag_as_required("input_file")
   flags.mark_flag_as_required("output_file")
   flags.mark_flag_as_required("vocab_file")
+
   tf.app.run()
