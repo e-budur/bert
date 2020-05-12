@@ -200,8 +200,10 @@ class SentencePieceTokenizer(object):
     self.unk_token = unk_token
 
   def tokenize(self, text):
-    output_tokens = self.sp.EncodeAsPieces(text)
-    output_tokens = [convert_to_unicode(output_token) for output_token in output_tokens]
+    output_ids = self.sp.EncodeAsIds(text)
+    output_tokens = [convert_to_unicode(self.sp.IdToPiece(i))
+                    if i != 0 else self.unk_token
+                    for i in output_ids]
     return output_tokens
 
 class BasicTokenizer(object):
