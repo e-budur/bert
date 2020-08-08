@@ -200,7 +200,7 @@ class SentencePieceTokenizer(object):
     self.unk_token = unk_token
 
   def tokenize(self, text):
-    output_ids = self.sp.SampleEncodeAsIds(text, alpha=0.2, nbest_size=64)# TODO: the hyperparameters alpha and nbest_size should be bound to the input arguments.
+    output_ids = self.sp.EncodeAsIds(text)  # TODO: the hyperparameters alpha and nbest_size should be bound to the input arguments
     output_tokens = [convert_to_unicode(self.sp.IdToPiece(i))
                     if i != 0 else self.unk_token
                     for i in output_ids]
