@@ -163,13 +163,20 @@ class FullTokenizer(object):
   """Runs end-to-end tokenziation."""
 
   def __init__(self, vocab_file, do_lower_case=True,
-               piece='word', piece_model=None):
+               piece='word', piece_model=None,
+               do_sentencepiece_sampling=False,
+               alpha=1.0,
+               nbest_size=-1):
     self.vocab = load_vocab(vocab_file)
     self.inv_vocab = {v: k for k, v in self.vocab.items()}
     self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
     self.piece = piece
     if self.piece == 'sentence':
-      self.sentencepiece_tokenizer = SentencePieceTokenizer(model=piece_model)
+      self.sentencepiece_tokenizer = SentencePieceTokenizer(model=piece_model,
+                                                            do_sampling=do_sentencepiece_sampling,
+                                                            alpha=alpha,
+                                                            nbest_size=nbest_size
+                                                            )
     else: # Default to WordPiece
 
       self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
@@ -194,13 +201,24 @@ class FullTokenizer(object):
 
 class SentencePieceTokenizer(object):
   """Runs Google's SentencePiece tokenization."""
-  def __init__(self, model, unk_token="[UNK]"):
+  def __init__(self, model,
+               unk_token="[UNK]",
+               do_sampling=False,
+               alpha=1.0,
+               nbest_size=-1):
     self.sp = spm.SentencePieceProcessor()
     self.sp.Load(model)
     self.unk_token = unk_token
+    self.do_sampling = do_sampling
+    self.alpha = alpha
+    self.nbest_size = nbest_size
 
   def tokenize(self, text):
-    output_ids = self.sp.EncodeAsIds(text)  # TODO: the hyperparameters alpha and nbest_size should be bound to the input arguments
+    if self.do_sampling:
+        output_ids = self.sp.SampleEncodeAsIds(text, nbest_size=self.nbest_size, alpha=self.alpha)
+    else:
+        output_ids = self.sp.EncodeAsIds(text) #viterbi
+
     output_tokens = [convert_to_unicode(self.sp.IdToPiece(i))
                     if i != 0 else self.unk_token
                     for i in output_ids]

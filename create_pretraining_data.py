@@ -76,6 +76,14 @@ flags.DEFINE_bool(
     "do_morphological_parsing", False,
     "Whether to parse the sentences morphologically")
 
+flags.DEFINE_bool(
+    "do_sentencepiece_sampling", False,
+    "Whether to sample sentencepieces")
+
+flags.DEFINE_float('alpha', 1.0, 'The value of alpha parameter when sampling is requested for sentencepiece tokenization')
+flags.DEFINE_integer('nbest_size', -1, 'The value of nbest parameter when sampling is requested for sentencepiece tokenization')
+
+
 flags.DEFINE_string(
     "piece", "word",
     "Whether to use WordPiece or SentencePiece tokenization.")
@@ -500,11 +508,20 @@ def main(_):
   tf.logging.info("vocab_file:  %s", FLAGS.vocab_file)
   tf.logging.info("piece:  %s", FLAGS.piece)
   tf.logging.info("piece_model:  %s", FLAGS.piece_model)
+  tf.logging.info("do_sentencepiece_sampling:  %s", FLAGS.do_sentencepiece_sampling)
+  tf.logging.info("alpha:  %s", FLAGS.alpha)
+  tf.logging.info("nbest_size:  %s", FLAGS.nbest_size)
   tf.logging.info("random_seed:  %s", str(FLAGS.random_seed))
 
   tokenizer = tokenization.FullTokenizer(
-    vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case,
-    piece=FLAGS.piece, piece_model=FLAGS.piece_model)
+    vocab_file=FLAGS.vocab_file,
+    do_lower_case=FLAGS.do_lower_case,
+    piece=FLAGS.piece,
+    piece_model=FLAGS.piece_model,
+    do_sentencepiece_sampling=FLAGS.do_sentencepiece_sampling,
+    alpha=FLAGS.alpha,
+    nbest_size=FLAGS.nbest_size
+  )
 
   input_files = []
   for input_pattern in FLAGS.input_file.split(","):
