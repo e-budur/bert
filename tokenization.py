@@ -24,6 +24,8 @@ import unicodedata
 import six
 import tensorflow as tf
 import sentencepiece as spm
+from custom_tokenizers.ZemberekTokenizer import ZemberekTokenizer
+from custom_tokenizers.CustomTokenizerUtils import *
 # integrated sentencepiece by adopting the code from https://github.com/raymondhs/bert-sentencepiece/
 
 def validate_case_matches_checkpoint(do_lower_case, init_checkpoint):
@@ -75,25 +77,6 @@ def validate_case_matches_checkpoint(do_lower_case, init_checkpoint):
         "just comment out this check." % (actual_flag, init_checkpoint,
                                           model_name, case_name, opposite_flag))
 
-
-def convert_to_unicode(text):
-  """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
-  if six.PY3:
-    if isinstance(text, str):
-      return text
-    elif isinstance(text, bytes):
-      return text.decode("utf-8", "ignore")
-    else:
-      raise ValueError("Unsupported string type: %s" % (type(text)))
-  elif six.PY2:
-    if isinstance(text, str):
-      return text.decode("utf-8", "ignore")
-    elif isinstance(text, unicode):
-      return text
-    else:
-      raise ValueError("Unsupported string type: %s" % (type(text)))
-  else:
-    raise ValueError("Not running on Python2 or Python 3?")
 
 
 def printable_text(text):
@@ -161,32 +144,38 @@ def whitespace_tokenize(text):
 
 class FullTokenizer(object):
   """Runs end-to-end tokenziation."""
+  SENTENCEPIECE='sentence'
+  ZEMBEREK='zemberek'
 
   def __init__(self, vocab_file, do_lower_case=True,
                piece='word', piece_model=None,
                do_sentencepiece_sampling=False,
                alpha=1.0,
-               nbest_size=-1):
+               nbest_size=-1,
+               **kwargs):
     self.vocab = load_vocab(vocab_file)
     self.inv_vocab = {v: k for k, v in self.vocab.items()}
     self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
     self.piece = piece
-    if self.piece == 'sentence':
+    if self.piece == self.SENTENCEPIECE:
       self.sentencepiece_tokenizer = SentencePieceTokenizer(model=piece_model,
                                                             do_sampling=do_sentencepiece_sampling,
                                                             alpha=alpha,
                                                             nbest_size=nbest_size
                                                             )
+    elif self.piece == self.ZEMBEREK:
+      self.zemberek_tokenizer = ZemberekTokenizer(vocab=self.vocab, **kwargs)
     else: # Default to WordPiece
-
       self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
 
 
   def tokenize(self, text):
     split_tokens = []
-    if self.piece == 'sentence':
+    if self.piece == self.SENTENCEPIECE:
       text = ' '.join(whitespace_tokenize(text))
       split_tokens = self.sentencepiece_tokenizer.tokenize(text)
+    elif self.piece == self.ZEMBEREK:
+      split_tokens = self.zemberek_tokenizer.tokenize(text)
     else:
       for token in self.basic_tokenizer.tokenize(text):
         for sub_token in self.wordpiece_tokenizer.tokenize(token):
@@ -223,6 +212,11 @@ class SentencePieceTokenizer(object):
                     if i != 0 else self.unk_token
                     for i in output_ids]
     return output_tokens
+
+import os
+from jpype import *
+from berturk_preprocessor import *
+
 
 class BasicTokenizer(object):
   """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""

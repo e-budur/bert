@@ -89,6 +89,10 @@ flags.DEFINE_string(
     "Whether to use WordPiece or SentencePiece tokenization.")
 
 flags.DEFINE_string(
+    "java_home_path", None,
+    "The java home directory.")
+
+flags.DEFINE_string(
     "piece_model", None,
     "Tokenization model file (only for SentencePiece).")
 
@@ -226,19 +230,6 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
   # (2) Blank lines between documents. Document boundaries are needed so
   # that the "next sentence prediction" task doesn't span between documents.
 
-  cpath = f"-Djava.class.path=%s" % (FLAGS.zemberek_path)
-
-  startJVM(
-    getDefaultJVMPath(),
-    '-ea',
-    cpath,
-    convertStrings=False
-  )
-  if FLAGS.do_morphological_parsing:
-    TurkishMorphology = JClass('zemberek.morphology.TurkishMorphology')
-    morphology = TurkishMorphology.createWithDefaults()
-    AnalysisFormatters = JClass('zemberek.morphology.analysis.AnalysisFormatters')
-
   for input_file in input_files:
     with tf.gfile.GFile(input_file, "r") as reader:
       while True:
@@ -258,15 +249,6 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
                           shuffled_line,
                           u"=======================================================================================")
         line = shuffled_line
-        if FLAGS.do_morphological_parsing:
-            morphed_line = parse_sentence(AnalysisFormatters, morphology, line)
-            if random.random() < 0.01:  # print some examples of shuffles sentences
-              tf.logging.info(u"\n%s\nOriginal line: %s\nMorphed line: %s\n%s\n ",
-                              u"================================= MORPHED EXAMPLE {} ================================",
-                              line,
-                              morphed_line,
-                              u"=======================================================================================")
-              line = morphed_line
 
         tokens = tokenizer.tokenize(line)
         if tokens:
@@ -520,7 +502,9 @@ def main(_):
     piece_model=FLAGS.piece_model,
     do_sentencepiece_sampling=FLAGS.do_sentencepiece_sampling,
     alpha=FLAGS.alpha,
-    nbest_size=FLAGS.nbest_size
+    nbest_size=FLAGS.nbest_size,
+    java_home_path=FLAGS.java_home_path,
+    zemberek_path=FLAGS.zemberek_path
   )
 
   input_files = []
@@ -580,23 +564,6 @@ def shuffle_word_order(tokens):
       tokens[i] = tokens[j]
       tokens[j] = tmp_token
 
-
-def parse_sentence(AnalysisFormatters, morphology, sentence):
-
-    sentence_analysis = morphology.analyzeAndDisambiguate(JString(sentence))
-    parsed_words = []
-    for sentence_word_analysis in sentence_analysis:
-      word_analysis = sentence_word_analysis.getWordAnalysis()
-      word_analysis_results = word_analysis.getAnalysisResults()
-      if len(word_analysis_results) > 0:
-        single_anaysis = word_analysis_results[0]
-        parsed_word = str(AnalysisFormatters.SURFACE_SEQUENCE.format(single_anaysis))
-        parsed_word = str(word_analysis.getInput())[0] + parsed_word[1:]
-      else:
-        parsed_word = str(word_analysis.getInput())
-      parsed_words.append(parsed_word)
-    parsed_sentence = '  '.join(parsed_words)
-    return parsed_sentence
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("input_file")
