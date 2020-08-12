@@ -1,7 +1,7 @@
 from jpype import *
 import os
 from custom_tokenizers.CustomTokenizerUtils import *
-
+import random
 class ZemberekTokenizer(object):
 
   """Runs Zemberek's morphological tokenization."""
@@ -50,7 +50,9 @@ class ZemberekTokenizer(object):
           else:
               parsed_word = str(word_analysis.getInput())
           parsed_tokens.extend(parsed_word.split(' '))
-      print('parsed_tokens', parsed_tokens)
+
+      if random.random() < 0.1: #print a fraction of the file to get a sense of the parsing quality empirically
+          print(parsed_tokens)
 
       output_tokens = [convert_to_unicode(token)
                        if token in self.vocab else self.unk_token
