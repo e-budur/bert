@@ -58,7 +58,10 @@ class ZemberekTokenizer(object):
       return output_tokens
 
   def turn_on_morphological_analyzer(self):
-      os.environ['JAVA_HOME_PATH'] = self.kwargs['java_home_path']
+      java_home_path = self.kwargs.get('java_home_path', None)
+      if java_home_path is not None:
+          os.environ['JAVA_HOME_PATH'] = java_home_path
+
 
       cpath = f'-Djava.class.path=%s' % (self.kwargs['zemberek_path'])
 
