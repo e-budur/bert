@@ -52,7 +52,7 @@ class ZemberekTokenizer(object):
           parsed_tokens.extend(parsed_word.split(' '))
 
       if random.random() < 0.1: #print a fraction of the file to get a sense of the parsing quality empirically
-          print(parsed_tokens)
+          print(' '.join(parsed_tokens))
 
       output_tokens = [convert_to_unicode(token)
                        if token in self.vocab else self.unk_token
