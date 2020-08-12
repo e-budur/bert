@@ -215,7 +215,6 @@ class SentencePieceTokenizer(object):
 
 import os
 from jpype import *
-from berturk_preprocessor import *
 
 
 class BasicTokenizer(object):
