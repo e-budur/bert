@@ -22,9 +22,9 @@ import collections
 import random
 import tokenization
 import tensorflow as tf
-import os
-import jpype
-from jpype import *
+import sys
+
+from morphological_tokenizers.tokenizer_factory import Tokenizers
 
 flags = tf.flags
 
@@ -37,11 +37,8 @@ flags.DEFINE_string(
     "output_file", None,
     "Output TF example file (or comma-separated list of files).")
 
-flags.DEFINE_string("vocab_file", None,
-                    "The vocabulary file that the BERT model was trained on.")
-
 flags.DEFINE_bool(
-    "do_lower_case", False,
+    "do_lower_case", True,
     "Whether to lower case the input text. Should be True for uncased "
     "models and False for cased models.")
 
@@ -67,23 +64,9 @@ flags.DEFINE_float(
     "Probability of creating sequences which are shorter than the "
     "maximum length.")
 
-flags.DEFINE_float('sentence_shuffle_probability', 0.0, 'The probability of shuffling of the input sentence.')
-flags.DEFINE_float('word_order_shuffle_probability', 0.0, 'The probability of shuffling of the word order in an input sentence that was selected to be shuffled.')
-flags.DEFINE_float('shuffle_seed', 1453, 'The seed value for shuffling.')
-
-flags.DEFINE_bool(
-    "do_morphological_parsing", False,
-    "Whether to parse the sentences morphologically")
-
-flags.DEFINE_string("zemberek_path", None,
-                    "The zemberek library path.")
-
-flags.DEFINE_integer(
-    "ngram_window_size", 0,
-    "The window size of ngram if the sentence is to be preprocessed by using ngram method.")
-
-shuffle_random_generator = random.Random()
-shuffle_random_generator.seed(FLAGS.shuffle_seed)
+###############
+flags.DEFINE_string("tokenizer_config_file", None,
+                    "Trained tokenizer model config file path.")
 
 class TrainingInstance(object):
   """A single training instance (sentence pair)."""
@@ -208,20 +191,6 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
   # sentence boundaries for the "next sentence prediction" task).
   # (2) Blank lines between documents. Document boundaries are needed so
   # that the "next sentence prediction" task doesn't span between documents.
-
-  cpath = f"-Djava.class.path=%s" % (FLAGS.zemberek_path)
-
-  startJVM(
-    getDefaultJVMPath(),
-    '-ea',
-    cpath,
-    convertStrings=False
-  )
-  if FLAGS.do_morphological_parsing:
-    TurkishMorphology = JClass('zemberek.morphology.TurkishMorphology')
-    morphology = TurkishMorphology.createWithDefaults()
-    AnalysisFormatters = JClass('zemberek.morphology.analysis.AnalysisFormatters')
-
   for input_file in input_files:
     with tf.gfile.GFile(input_file, "r") as reader:
       while True:
@@ -233,24 +202,6 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
         # Empty lines are used as document delimiters
         if not line:
           all_documents.append([])
-        shuffled_line = shuffle_sentence(line)
-        if line != shuffled_line and random.random() < 0.01: # print some examples of shuffles sentences
-          tf.logging.info(u"\n%s\nOriginal line: %s\nShuffled line: %s\n%s\n ",
-                          u"================================= SHUFFLE EXAMPLE {} ================================".format(FLAGS.word_order_shuffle_probability),
-                          line,
-                          shuffled_line,
-                          u"=======================================================================================")
-        line = shuffled_line
-        if FLAGS.do_morphological_parsing:
-            morphed_line = parse_sentence(AnalysisFormatters, morphology, line)
-            if random.random() < 0.01:  # print some examples of shuffles sentences
-              tf.logging.info(u"\n%s\nOriginal line: %s\nMorphed line: %s\n%s\n ",
-                              u"================================= MORPHED EXAMPLE {} ================================",
-                              line,
-                              morphed_line,
-                              u"=======================================================================================")
-              line = morphed_line
-
         tokens = tokenizer.tokenize(line)
         if tokens:
           all_documents[-1].append(tokens)
@@ -259,7 +210,8 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
   all_documents = [x for x in all_documents if x]
   rng.shuffle(all_documents)
 
-  vocab_words = list(tokenizer.vocab.keys())
+  vocab_words = list(tokenizer.vocab.word2idx.keys())
+
   instances = []
   for _ in range(dupe_factor):
     for document_index in range(len(all_documents)):
@@ -487,12 +439,8 @@ def truncate_seq_pair(tokens_a, tokens_b, max_num_tokens, rng):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  tf.logging.info("do_lower_case:  %s", str(FLAGS.do_lower_case))
-  tf.logging.info("vocab_file:  %s", FLAGS.vocab_file)
-  tf.logging.info("random_seed:  %s", str(FLAGS.random_seed))
 
-  tokenizer = tokenization.FullTokenizer(
-      vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+  tokenizer = Tokenizers.create(FLAGS.tokenizer_config_file)
 
   input_files = []
   for input_pattern in FLAGS.input_file.split(","):
@@ -515,62 +463,10 @@ def main(_):
 
   write_instance_to_example_files(instances, tokenizer, FLAGS.max_seq_length,
                                   FLAGS.max_predictions_per_seq, output_files)
-  tf.logging.info("*** Process completed  ***")
-  tf.logging.info("*** input files ***")
-  for input_file in input_files:
-    tf.logging.info("  %s", input_file)
 
-  tf.logging.info("*** output files ***")
-  for output_file in output_files:
-    tf.logging.info("  %s", output_file)
-
-
-def shuffle_sentence(line):
-  if should_shuffle_sentence():
-    tokens = line.split(' ')
-    shuffle_word_order(tokens)
-    line = ' '.join(tokens)
-  return line
-
-def should_shuffle_sentence():
-  random_prob = shuffle_random_generator.uniform(0, 1)
-  should_shuffle = random_prob < FLAGS.sentence_shuffle_probability
-  return should_shuffle
-
-def should_shuffle_word_order():
-  random_prob = shuffle_random_generator.uniform(0, 1)
-  should_shuffle = random_prob < FLAGS.word_order_shuffle_probability
-  return should_shuffle
-
-def shuffle_word_order(tokens):
-  for i in range(len(tokens)):
-    should_swap_flag = should_shuffle_word_order()
-    if should_swap_flag:
-      j = int(random.uniform(0, len(tokens)))  # choose a random token to swap
-      tmp_token = tokens[i]
-      tokens[i] = tokens[j]
-      tokens[j] = tmp_token
-
-
-def parse_sentence(AnalysisFormatters, morphology, sentence):
-
-    sentence_analysis = morphology.analyzeAndDisambiguate(JString(sentence))
-    parsed_words = []
-    for sentence_word_analysis in sentence_analysis:
-      word_analysis = sentence_word_analysis.getWordAnalysis()
-      word_analysis_results = word_analysis.getAnalysisResults()
-      if len(word_analysis_results) > 0:
-        single_anaysis = word_analysis_results[0]
-        parsed_word = str(AnalysisFormatters.SURFACE_SEQUENCE.format(single_anaysis))
-        parsed_word = str(word_analysis.getInput())[0] + parsed_word[1:]
-      else:
-        parsed_word = str(word_analysis.getInput())
-      parsed_words.append(parsed_word)
-    parsed_sentence = '  '.join(parsed_words)
-    return parsed_sentence
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("input_file")
   flags.mark_flag_as_required("output_file")
-  flags.mark_flag_as_required("vocab_file")
+  flags.mark_flag_as_required("tokenizer_config_file")
   tf.app.run()
