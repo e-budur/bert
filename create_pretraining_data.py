@@ -210,7 +210,7 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
   all_documents = [x for x in all_documents if x]
   rng.shuffle(all_documents)
 
-  vocab_words = list(tokenizer.vocab.word2idx.keys())
+  vocab_words = tokenizer.get_vocab_list()
 
   instances = []
   for _ in range(dupe_factor):
